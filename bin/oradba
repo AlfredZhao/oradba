@@ -8,16 +8,18 @@ SQL_DIR="$ORADBA_HOME/sql"
 SQL_BIN="${SQL_BIN:-sql}"
 OUTPUT_ROOT="${ORADBA_OUTPUT_DIR:-$ORADBA_HOME/output}"
 CONNECTION="${ORADBA_CONNECTION:-test_alfred}"
+OUTPUT_PERIOD="${ORADBA_OUTPUT_PERIOD:-daily}"
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 require_sqlcl() { command -v "$SQL_BIN" >/dev/null 2>&1 || fail "SQLcl command not found: $SQL_BIN"; }
 valid_connection() { [[ "$1" =~ ^[[:alnum:]_./-]+$ ]]; }
 valid_sql_id() { [[ "$1" =~ ^[[:alnum:]]{13}$ ]]; }
 valid_positive_int() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
+valid_output_period() { [[ "$1" == "daily" || "$1" == "monthly" || "$1" == "session" ]]; }
 
 usage() {
   cat <<USAGE
-Usage: $(basename "$0") [--connection NAME] [--output DIR] [command]
+Usage: $(basename "$0") [--connection NAME] [--output DIR] [--output-period PERIOD] [command]
 
 Without a command, opens one SQLcl session with the oradba aliases loaded.
 
@@ -33,6 +35,7 @@ Commands:
 Environment:
   ORADBA_CONNECTION           Saved SQLcl connection name (default: test_alfred)
   ORADBA_OUTPUT_DIR           Report root (default: ./output)
+  ORADBA_OUTPUT_PERIOD        Output grouping: daily, monthly, or session (default: daily)
   SQL_BIN                     SQLcl executable (default: sql)
   ORADBA_SHELL_RC             Shell startup file to update (advanced override)
 USAGE
@@ -91,7 +94,13 @@ install_shell_path() {
 session_dir() {
   local safe_connection
   safe_connection="$(printf '%s' "$CONNECTION" | tr '/.' '__')"
-  local dir="$OUTPUT_ROOT/$safe_connection/$(date +%Y%m%d_%H%M%S)"
+  local period_dir
+  case "$OUTPUT_PERIOD" in
+    daily) period_dir="$(date +%Y%m%d)" ;;
+    monthly) period_dir="$(date +%Y%m)" ;;
+    session) period_dir="$(date +%Y%m%d_%H%M%S)" ;;
+  esac
+  local dir="$OUTPUT_ROOT/$safe_connection/$period_dir"
   mkdir -p "$dir"
   printf '%s' "$dir"
 }
@@ -127,12 +136,15 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -c|--connection) [[ $# -ge 2 ]] || fail "Missing value for $1"; CONNECTION="$2"; shift 2 ;;
     -o|--output) [[ $# -ge 2 ]] || fail "Missing value for $1"; OUTPUT_ROOT="$2"; shift 2 ;;
+    --output-period) [[ $# -ge 2 ]] || fail "Missing value for $1"; OUTPUT_PERIOD="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
     -*) fail "Unknown option: $1" ;;
     *) break ;;
   esac
 done
+
+valid_output_period "$OUTPUT_PERIOD" || fail "Invalid output period: $OUTPUT_PERIOD (use daily, monthly, or session)."
 
 command="${1:-shell}"
 shift $(( $# > 0 ? 1 : 0 ))

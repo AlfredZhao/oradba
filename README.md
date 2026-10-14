@@ -36,7 +36,7 @@ oradba sessions
 export PATH="/absolute/path/to/oradba/bin:$PATH"
 ```
 
-默认使用 SQLcl Connection Manager 中的 `test_alfred`。启动器只创建本次输出目录并打开一个 SQLcl 进程；连接与后续诊断均在该进程中完成：
+默认使用 SQLcl Connection Manager 中的 `test_alfred`。输出默认按“连接名/日期”归档，例如 `output/test_alfred/20261014/`；同一天的多次执行共用一个目录。启动器随后打开一个 SQLcl 进程；连接与后续诊断均在该进程中完成：
 
 ```sql
 connect -name test_alfred
@@ -68,6 +68,23 @@ connect -name test_alfred
 export ORADBA_CONNECTION=your_connection_name
 ./bin/oradba
 ```
+
+### 输出目录归档
+
+默认按天建目录。可以使用 `--output-period` 或 `ORADBA_OUTPUT_PERIOD` 自定义归档粒度：
+
+```bash
+# 默认：output/<connection>/YYYYMMDD/
+./bin/oradba --output-period daily sessions
+
+# 每月一个目录：output/<connection>/YYYYMM/
+./bin/oradba --output-period monthly awr-report 100 101
+
+# 每次执行单独一个目录（兼容原行为）
+ORADBA_OUTPUT_PERIOD=session ./bin/oradba sessions
+```
+
+`--output DIR` 或 `ORADBA_OUTPUT_DIR` 可继续指定输出根目录。
 
 连接名必须是 SQLcl Connection Manager 已保存的名称；若未保存，请先在 SQLcl 中创建或导入连接。
 
