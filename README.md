@@ -118,7 +118,3 @@ awr create html <begin_snap> <end_snap>
 - ASH Top Waits
 
 所有一期脚本均为查询或 SQLcl 原生 AWR 报告生成，不包含 DDL/DML、SQL Profile 变更或数据库参数修改。AWR/ASH 的使用仍须具备并遵守 Oracle Diagnostics Pack 的授权与权限要求。
-
-## 参考资料
-
-脚本分类、复用边界和后续范围见 [docs/REFERENCE_CLASSIFICATION.md](docs/REFERENCE_CLASSIFICATION.md)。
