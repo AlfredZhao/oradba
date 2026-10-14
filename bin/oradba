@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# Thin SQLcl launcher for the curated, read-only oradba script collection.
+set -euo pipefail
+
+ORADBA_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SQL_DIR="$ORADBA_HOME/sql"
+SQL_BIN="${SQL_BIN:-sql}"
+OUTPUT_ROOT="${ORADBA_OUTPUT_DIR:-$ORADBA_HOME/output}"
+CONNECTION="${ORADBA_CONNECTION:-test_alfred}"
+
+fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+require_sqlcl() { command -v "$SQL_BIN" >/dev/null 2>&1 || fail "SQLcl command not found: $SQL_BIN"; }
+valid_connection() { [[ "$1" =~ ^[[:alnum:]_./-]+$ ]]; }
+valid_sql_id() { [[ "$1" =~ ^[[:alnum:]]{13}$ ]]; }
+valid_positive_int() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
+
+usage() {
+  cat <<USAGE
+Usage: $(basename "$0") [--connection NAME] [--output DIR] [command]
+
+Without a command, opens one SQLcl session with the oradba aliases loaded.
+
+Commands:
+  connections                 List SQLcl Connection Manager connections
+  env | tablespaces | sessions | longops | blocking
+  awr-snapshots               Run SQLcl's native 'awr list snapshots'
+  sql-id SQL_ID [DAYS]        Run curated current/AWR SQL diagnostics
+  ash-top-waits [HOURS]
+  awr-report BEGIN_SNAP END_SNAP
+
+Environment:
+  ORADBA_CONNECTION           Saved SQLcl connection name (default: test_alfred)
+  ORADBA_OUTPUT_DIR           Report root (default: ./output)
+  SQL_BIN                     SQLcl executable (default: sql)
+USAGE
+}
+
+session_dir() {
+  local safe_connection
+  safe_connection="$(printf '%s' "$CONNECTION" | tr '/.' '__')"
+  local dir="$OUTPUT_ROOT/$safe_connection/$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$dir"
+  printf '%s' "$dir"
+}
+
+run0() {
+  local dir; dir="$(session_dir)"
+  ( cd "$dir"; exec "$SQL_BIN" /nolog "@$SQL_DIR/run0.sql" "$CONNECTION" "$dir" "$1" )
+}
+
+run1() {
+  local dir; dir="$(session_dir)"
+  ( cd "$dir"; exec "$SQL_BIN" /nolog "@$SQL_DIR/run1.sql" "$CONNECTION" "$dir" "$1" "$2" )
+}
+
+run2() {
+  local dir; dir="$(session_dir)"
+  ( cd "$dir"; exec "$SQL_BIN" /nolog "@$SQL_DIR/run2.sql" "$CONNECTION" "$dir" "$1" "$2" "$3" )
+}
+
+list_connections() {
+  printf 'connmgr list\nexit\n' | "$SQL_BIN" /nolog
+}
+
+saved_connection_exists() {
+  local names
+  names="$(printf 'connmgr list -flat\nexit\n' | "$SQL_BIN" /nolog)"
+  # SQLcl decorates interactive output with ANSI colour sequences on some terminals.
+  names="$(printf '%s\n' "$names" | sed $'s/\x1B\[[0-9;]*[[:alpha:]]//g')"
+  grep -Fqx -- "$CONNECTION" <<<"$names"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -c|--connection) [[ $# -ge 2 ]] || fail "Missing value for $1"; CONNECTION="$2"; shift 2 ;;
+    -o|--output) [[ $# -ge 2 ]] || fail "Missing value for $1"; OUTPUT_ROOT="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; break ;;
+    -*) fail "Unknown option: $1" ;;
+    *) break ;;
+  esac
+done
+
+require_sqlcl
+command="${1:-shell}"
+shift $(( $# > 0 ? 1 : 0 ))
+
+if [[ "$command" != "connections" && "$command" != "list" ]]; then
+  valid_connection "$CONNECTION" || fail "Invalid saved-connection name."
+  saved_connection_exists || fail "Saved SQLcl connection not found: $CONNECTION (run: bin/oradba connections)"
+fi
+
+case "$command" in
+  shell|menu)
+    [[ $# -eq 0 ]] || fail "The interactive shell accepts no additional arguments."
+    dir="$(session_dir)"
+    printf 'oradba output directory: %s\n' "$dir"
+    ( cd "$dir"; exec "$SQL_BIN" /nolog "@$SQL_DIR/oradba.sql" "$CONNECTION" "$dir" "$SQL_DIR" )
+    ;;
+  connections|list) [[ $# -eq 0 ]] || fail "connections accepts no arguments."; list_connections ;;
+  env) [[ $# -eq 0 ]] || fail "env accepts no arguments."; run0 "$SQL_DIR/realtime/environment.sql" ;;
+  tablespaces) [[ $# -eq 0 ]] || fail "tablespaces accepts no arguments."; run0 "$SQL_DIR/basic/tablespace_usage.sql" ;;
+  sessions) [[ $# -eq 0 ]] || fail "sessions accepts no arguments."; run0 "$SQL_DIR/realtime/active_sessions.sql" ;;
+  longops) [[ $# -eq 0 ]] || fail "longops accepts no arguments."; run0 "$SQL_DIR/realtime/longops.sql" ;;
+  blocking) [[ $# -eq 0 ]] || fail "blocking accepts no arguments."; run0 "$SQL_DIR/realtime/blocking_sessions.sql" ;;
+  awr-snapshots) [[ $# -eq 0 ]] || fail "awr-snapshots accepts no arguments."; run0 "$SQL_DIR/awr/list_snapshots.sql" ;;
+  sql-id)
+    [[ $# -ge 1 && $# -le 2 ]] || fail "Usage: $(basename "$0") sql-id SQL_ID [DAYS]"
+    sql_id="$1"; days="${2:-7}"
+    valid_sql_id "$sql_id" || fail "SQL_ID must be 13 alphanumeric characters."
+    valid_positive_int "$days" || fail "DAYS must be a positive integer."
+    run2 "$SQL_DIR/performance/sql_id_diagnostics.sql" "$sql_id" "$days"
+    ;;
+  ash-top-waits)
+    [[ $# -le 1 ]] || fail "Usage: $(basename "$0") ash-top-waits [HOURS]"
+    hours="${1:-24}"
+    valid_positive_int "$hours" || fail "HOURS must be a positive integer."
+    run1 "$SQL_DIR/awr/ash_top_waits.sql" "$hours"
+    ;;
+  awr-report)
+    [[ $# -eq 2 ]] || fail "Usage: $(basename "$0") awr-report BEGIN_SNAP END_SNAP"
+    valid_positive_int "$1" && valid_positive_int "$2" || fail "Snapshot IDs must be positive integers."
+    run2 "$SQL_DIR/awr/native_report.sql" "$1" "$2"
+    ;;
+  *) usage >&2; exit 2 ;;
+esac
