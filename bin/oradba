@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ORADBA_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ORADBA_BIN_DIR="$ORADBA_HOME/bin"
 SQL_DIR="$ORADBA_HOME/sql"
 SQL_BIN="${SQL_BIN:-sql}"
 OUTPUT_ROOT="${ORADBA_OUTPUT_DIR:-$ORADBA_HOME/output}"
@@ -21,6 +22,7 @@ Usage: $(basename "$0") [--connection NAME] [--output DIR] [command]
 Without a command, opens one SQLcl session with the oradba aliases loaded.
 
 Commands:
+  install                     Add oradba's bin directory to this shell's startup file
   connections                 List SQLcl Connection Manager connections
   env | tablespaces | sessions | longops | blocking
   awr-snapshots               Run SQLcl's native 'awr list snapshots'
@@ -32,7 +34,58 @@ Environment:
   ORADBA_CONNECTION           Saved SQLcl connection name (default: test_alfred)
   ORADBA_OUTPUT_DIR           Report root (default: ./output)
   SQL_BIN                     SQLcl executable (default: sql)
+  ORADBA_SHELL_RC             Shell startup file to update (advanced override)
 USAGE
+}
+
+shell_startup_file() {
+  if [[ -n "${ORADBA_SHELL_RC:-}" ]]; then
+    printf '%s' "$ORADBA_SHELL_RC"
+    return
+  fi
+
+  case "${SHELL##*/}" in
+    zsh) printf '%s' "$HOME/.zshrc" ;;
+    bash)
+      if [[ "$(uname -s)" == "Darwin" ]]; then
+        printf '%s' "$HOME/.bash_profile"
+      else
+        printf '%s' "$HOME/.bashrc"
+      fi
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+shell_single_quote() {
+  # Produce a shell-safe single-quoted literal, including paths containing apostrophes.
+  printf "'%s'" "${1//\'/\'\\\'\'}"
+}
+
+install_shell_path() {
+  local startup_file quoted_bin_dir
+  if ! startup_file="$(shell_startup_file)"; then
+    printf 'NOTE: Could not identify your shell startup file. Add this to your shell configuration:\n'
+    printf '  export PATH=%s:"$PATH"\n' "$(shell_single_quote "$ORADBA_BIN_DIR")"
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$startup_file")"
+  touch "$startup_file"
+
+  if grep -Fqx '# >>> oradba PATH >>>' "$startup_file"; then
+    return 0
+  fi
+
+  quoted_bin_dir="$(shell_single_quote "$ORADBA_BIN_DIR")"
+  {
+    printf '\n# >>> oradba PATH >>>\n'
+    printf 'export PATH=%s:"$PATH"\n' "$quoted_bin_dir"
+    printf '# <<< oradba PATH <<<\n'
+  } >> "$startup_file"
+
+  printf 'Configured oradba on PATH in %s\n' "$startup_file"
+  printf 'Open a new terminal, or run: source %s\n' "$(shell_single_quote "$startup_file")"
 }
 
 session_dir() {
@@ -81,9 +134,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-require_sqlcl
 command="${1:-shell}"
 shift $(( $# > 0 ? 1 : 0 ))
+
+case "$command" in
+  install|setup)
+    [[ $# -eq 0 ]] || fail "$command accepts no arguments."
+    install_shell_path
+    exit 0
+    ;;
+esac
+
+install_shell_path
+require_sqlcl
 
 if [[ "$command" != "connections" && "$command" != "list" ]]; then
   valid_connection "$CONNECTION" || fail "Invalid saved-connection name."

@@ -15,6 +15,27 @@
 ./bin/oradba
 ```
 
+首次通过 `./bin/oradba` 启动时，启动器会自动将项目的 `bin` 目录加入当前用户的 shell 启动文件：macOS 的默认 zsh 使用 `~/.zshrc`；bash 在 Linux 使用 `~/.bashrc`，在 macOS 使用 `~/.bash_profile`。这是通过配置 `PATH` 实现的，不会写入密码或连接信息。
+
+**当前终端无法被子进程修改**，因此首次启动完成后请新开一个终端；或者按启动器显示的命令重新加载配置文件。之后可以从任意路径直接运行：
+
+```bash
+oradba
+oradba sessions
+```
+
+如果只想配置命令路径（例如 SQLcl 还未安装完成），可显式执行：
+
+```bash
+./bin/oradba install
+```
+
+对于 bash/zsh 以外的 shell，或需要指定配置文件时，可自行添加以下变量到对应的启动文件：
+
+```bash
+export PATH="/absolute/path/to/oradba/bin:$PATH"
+```
+
 默认使用 SQLcl Connection Manager 中的 `test_alfred`。启动器只创建本次输出目录并打开一个 SQLcl 进程；连接与后续诊断均在该进程中完成：
 
 ```sql
