@@ -21,6 +21,35 @@
 connect -name test_alfred
 ```
 
+### 在新环境中指定连接
+
+`test_alfred` 只是项目的默认示例连接名；新环境未配置该连接时，请先确认 SQLcl Connection Manager 中已有可用连接：
+
+```bash
+./bin/oradba connections
+```
+
+启动交互会话时，通过 `--connection` 指定连接名：
+
+```bash
+./bin/oradba --connection your_connection_name
+```
+
+批处理命令也使用相同方式：
+
+```bash
+./bin/oradba --connection your_connection_name sessions
+```
+
+如需在当前终端中持续使用该连接，可设置环境变量：
+
+```bash
+export ORADBA_CONNECTION=your_connection_name
+./bin/oradba
+```
+
+连接名必须是 SQLcl Connection Manager 已保存的名称；若未保存，请先在 SQLcl 中创建或导入连接。
+
 会话内可执行：
 
 ```sql
